@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>눈사람 눈송이 받기</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; }
+  body {
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
+    color: #24364b;
+    background: linear-gradient(180deg, #b9e3f5 0%, #eaf7fc 68%, #f8fcff 100%);
+  }
+  #game {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 320px;
+    overflow: hidden;
+  }
+  .hud {
+    position: absolute;
+    z-index: 2;
+    top: 22px;
+    left: 24px;
+    right: 24px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: clamp(16px, 2.4vw, 22px);
+    font-weight: 750;
+    text-shadow: 0 1px 0 rgba(255,255,255,.7);
+    pointer-events: none;
+  }
+  .hud span {
+    padding: 10px 16px;
+    border: 1px solid rgba(255,255,255,.8);
+    border-radius: 999px;
+    background: rgba(255,255,255,.55);
+    box-shadow: 0 4px 14px rgba(67,116,145,.08);
+  }
+  #ground {
+    position: absolute;
+    left: -5%;
+    right: -5%;
+    bottom: -24px;
+    height: 70px;
+    border-radius: 50% 50% 0 0 / 35% 35% 0 0;
+    background: #fff;
+    box-shadow: 0 -5px 20px rgba(255,255,255,.7);
+  }
+  #snowman {
+    position: absolute;
+    z-index: 1;
+    bottom: 30px;
+    left: 50%;
+    width: 86px;
+    height: 124px;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .body-ball, .head-ball {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #d9e7ed;
+    box-shadow: inset -5px -5px 0 rgba(207,224,233,.35), 0 3px 7px rgba(91,129,149,.12);
+  }
+  .body-ball { width: 76px; height: 76px; bottom: 0; }
+  .head-ball { width: 54px; height: 54px; bottom: 62px; }
+  .eye {
+    position: absolute;
+    top: 18px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #263443;
+  }
+  .eye.left { left: 16px; }
+  .eye.right { right: 16px; }
+  .nose {
+    position: absolute;
+    top: 27px;
+    left: 28px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 17px solid #f29a45;
+  }
+  .snowflake {
+    position: absolute;
+    z-index: 1;
+    top: -24px;
+    width: 20px;
+    height: 20px;
+    color: white;
+    font-size: 23px;
+    line-height: 20px;
+    text-align: center;
+    text-shadow: 0 1px 3px rgba(91,144,170,.35);
+    user-select: none;
+    pointer-events: none;
+  }
+  #result {
+    position: absolute;
+    z-index: 5;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(226,244,251,.66);
+    backdrop-filter: blur(4px);
+  }
+  #result.show { display: flex; }
+  .result-panel {
+    min-width: min(320px, calc(100% - 40px));
+    padding: 34px 30px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,.95);
+    border-radius: 24px;
+    background: rgba(255,255,255,.92);
+    box-shadow: 0 16px 48px rgba(67,116,145,.18);
+  }
+  #resultText {
+    margin: 0 0 24px;
+    font-size: clamp(24px, 4vw, 32px);
+    font-weight: 800;
+    color: #29435a;
+  }
+  button {
+    border: 0;
+    border-radius: 999px;
+    padding: 13px 28px;
+    color: white;
+    background: #579bc0;
+    font: inherit;
+    font-size: 17px;
+    font-weight: 750;
+    cursor: pointer;
+    box-shadow: 0 5px 0 #397da3;
+  }
+  button:hover { background: #478eb5; }
+  button:active { transform: translateY(2px); box-shadow: 0 3px 0 #397da3; }
+  @media (max-width: 520px) {
+    .hud { top: 14px; left: 12px; right: 12px; }
+    .hud span { padding: 8px 11px; }
+    #snowman { bottom: 25px; }
+  }
+</style>
+</head>
+<body>
+<main id="game" aria-label="눈사람 눈송이 받기 게임">
+  <div class="hud">
+    <span id="time">남은 시간 45초</span>
+    <span id="score">받은 눈송이 0개</span>
+  </div>
+  <div id="snowman" aria-hidden="true">
+    <div class="body-ball"></div>
+    <div class="head-ball">
+      <i class="eye left"></i>
+      <i class="eye right"></i>
+      <i class="nose"></i>
+    </div>
+  </div>
+  <div id="ground"></div>
+  <section id="result" aria-live="polite">
+    <div class="result-panel">
+      <p id="resultText">끝! 받은 눈송이 0개</p>
+      <button id="restart" type="button">다시 하기</button>
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  const game = document.getElementById('game');
+  const snowman = document.getElementById('snowman');
+  const timeDisplay = document.getElementById('time');
+  const scoreDisplay = document.getElementById('score');
+  const result = document.getElementById('result');
+  const resultText = document.getElementById('resultText');
+  const restartButton = document.getElementById('restart');
+
+  const DURATION = 45000;
+  const PLAYER_SPEED = 330;
+  const SNOW_SPEED = 150;
+  const SPAWN_INTERVAL = 1000;
+
+  let playerX = 0;
+  let score = 0;
+  let remaining = DURATION;
+  let running = false;
+  let lastFrame = 0;
+  let startTime = 0;
+  let lastSpawn = 0;
+  let animationId = 0;
+  let snowflakes = [];
+  const keys = { left: false, right: false };
+
+  function setPlayerPosition() {
+    const half = snowman.offsetWidth / 2;
+    const max = Math.max(half, game.clientWidth - half);
+    playerX = Math.max(half, Math.min(max, playerX));
+    snowman.style.left = playerX + 'px';
+  }
+
+  function updateHud() {
+    timeDisplay.textContent = `남은 시간 ${Math.ceil(remaining / 1000)}초`;
+    scoreDisplay.textContent = `받은 눈송이 ${score}개`;
+  }
+
+  function spawnSnowflake(now) {
+    const flake = document.createElement('div');
+    flake.className = 'snowflake';
+    flake.textContent = '❄';
+    const margin = 16;
+    const x = margin + Math.random() * Math.max(1, game.clientWidth - margin * 2);
+    flake.style.left = x + 'px';
+    game.appendChild(flake);
+    snowflakes.push({ element: flake, x, y: -24 });
+    lastSpawn = now;
+  }
+
+  function removeSnowflake(index) {
+    snowflakes[index].element.remove();
+    snowflakes.splice(index, 1);
+  }
+
+  function overlapsSnowman(flake) {
+    const gameRect = game.getBoundingClientRect();
+    const manRect = snowman.getBoundingClientRect();
+    const fx = flake.x + 10;
+    const fy = flake.y + 10;
+    const closestX = Math.max(manRect.left - gameRect.left, Math.min(fx, manRect.right - gameRect.left));
+    const closestY = Math.max(manRect.top - gameRect.top, Math.min(fy, manRect.bottom - gameRect.top));
+    const dx = fx - closestX;
+    const dy = fy - closestY;
+    return dx * dx + dy * dy < 13 * 13;
+  }
+
+  function finishGame() {
+    running = false;
+    keys.left = false;
+    keys.right = false;
+    snowflakes.forEach(f => f.element.remove());
+    snowflakes = [];
+    resultText.textContent = `끝! 받은 눈송이 ${score}개`;
+    result.classList.add('show');
+    updateHud();
+  }
+
+  function frame(now) {
+    if (!running) return;
+    if (!lastFrame) lastFrame = now;
+    const delta = Math.min((now - lastFrame) / 1000, 0.05);
+    lastFrame = now;
+
+    remaining = Math.max(0, DURATION - (now - startTime));
+    if (remaining <= 0) {
+      timeDisplay.textContent = '남은 시간 0초';
+      finishGame();
+      return;
+    }
+
+    if (keys.left !== keys.right) {
+      playerX += (keys.right ? 1 : -1) * PLAYER_SPEED * delta;
+      setPlayerPosition();
+    }
+
+    if (now - lastSpawn >= SPAWN_INTERVAL) spawnSnowflake(now);
+
+    for (let i = snowflakes.length - 1; i >= 0; i--) {
+      const flake = snowflakes[i];
+      flake.y += SNOW_SPEED * delta;
+      flake.element.style.top = flake.y + 'px';
+
+      if (overlapsSnowman(flake)) {
+        removeSnowflake(i);
+        score += 1;
+        scoreDisplay.textContent = `받은 눈송이 ${score}개`;
+      } else if (flake.y > game.clientHeight) {
+        removeSnowflake(i);
+      }
+    }
+
+    updateHud();
+    animationId = requestAnimationFrame(frame);
+  }
+
+  function startGame() {
+    cancelAnimationFrame(animationId);
+    snowflakes.forEach(f => f.element.remove());
+    snowflakes = [];
+    score = 0;
+    remaining = DURATION;
+    playerX = game.clientWidth / 2;
+    keys.left = false;
+    keys.right = false;
+    setPlayerPosition();
+    result.classList.remove('show');
+    updateHud();
+    running = true;
+    startTime = performance.now();
+    lastFrame = 0;
+    lastSpawn = startTime;
+    animationId = requestAnimationFrame(frame);
+  }
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      if (!running) return;
+      if (event.key === 'ArrowLeft') keys.left = true;
+      if (event.key === 'ArrowRight') keys.right = true;
+    }
+  });
+
+  document.addEventListener('keyup', event => {
+    if (event.key === 'ArrowLeft') keys.left = false;
+    if (event.key === 'ArrowRight') keys.right = false;
+  });
+
+  window.addEventListener('blur', () => {
+    keys.left = false;
+    keys.right = false;
+  });
+
+  window.addEventListener('resize', setPlayerPosition);
+  restartButton.addEventListener('click', startGame);
+
+  startGame();
+})();
+</script>
+</body>
+</html>
