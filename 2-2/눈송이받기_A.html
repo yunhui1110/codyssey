@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>눈사람 눈송이 받기</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #1b2a4a;
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+    color: #ffffff;
+  }
+  #game {
+    position: fixed;
+    inset: 0;
+    display: block;
+    background: linear-gradient(#1b2a4a, #34507e);
+  }
+  #hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 16px 24px;
+    font-size: 24px;
+    font-weight: bold;
+    pointer-events: none;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  }
+  #result {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 32px 48px;
+    background: rgba(10, 20, 40, 0.85);
+    border-radius: 16px;
+    text-align: center;
+  }
+  #result.show { display: flex; }
+  #resultText {
+    font-size: 32px;
+    font-weight: bold;
+  }
+  #retry {
+    font-family: inherit;
+    font-size: 22px;
+    font-weight: bold;
+    padding: 12px 32px;
+    border: none;
+    border-radius: 10px;
+    background: #ff9a3c;
+    color: #ffffff;
+    cursor: pointer;
+  }
+  #retry:hover { background: #ff8a1f; }
+</style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div id="timeText">남은 시간 45초</div>
+    <div id="scoreText">받은 눈송이 0개</div>
+  </div>
+
+  <div id="result">
+    <div id="resultText">끝! 받은 눈송이 0개</div>
+    <button id="retry" type="button">다시 하기</button>
+  </div>
+
+<script>
+  // ===== 설정 값 =====
+  const GAME_SECONDS = 45;        // 한 판 시간(초)
+  const SPAWN_INTERVAL = 1000;    // 눈송이가 나오는 간격(밀리초)
+  const FALL_SPEED = 180;         // 눈송이가 떨어지는 속도(픽셀/초), 한 판 동안 바뀌지 않음
+  const FLAKE_RADIUS = 10;        // 눈송이 크기(반지름)
+  const SNOWMAN_SPEED = 400;      // 눈사람이 움직이는 속도(픽셀/초)
+  const BODY_R = 40;              // 눈사람 몸통 반지름
+  const HEAD_R = 28;              // 눈사람 머리 반지름
+  const GROUND_GAP = 20;          // 화면 바닥과 눈사람 사이 여백
+
+  // ===== 화면 요소 =====
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const timeText = document.getElementById('timeText');
+  const scoreText = document.getElementById('scoreText');
+  const result = document.getElementById('result');
+  const resultText = document.getElementById('resultText');
+  const retryBtn = document.getElementById('retry');
+
+  let width = 0;
+  let height = 0;
+
+  // ===== 게임 상태 =====
+  let snowmanX = 0;       // 눈사람 가운데 가로 위치
+  let flakes = [];        // 떨어지는 눈송이 목록
+  let score = 0;
+  let remaining = GAME_SECONDS;
+  let startTime = 0;
+  let lastSpawn = 0;
+  let lastFrame = 0;
+  let playing = false;
+  const keys = { left: false, right: false };
+
+  // 화면 크기에 맞춰 캔버스 크기 조정
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    snowmanX = clampSnowman(snowmanX);
+    draw();
+  }
+
+  // 눈사람이 화면 왼쪽·오른쪽 끝 밖으로 나가지 않게 막기
+  function clampSnowman(x) {
+    const min = BODY_R;
+    const max = width - BODY_R;
+    if (max < min) return width / 2;
+    return Math.min(Math.max(x, min), max);
+  }
+
+  // 눈사람 몸통과 머리의 가운데 위치
+  function snowmanParts() {
+    const bodyY = height - GROUND_GAP - BODY_R;
+    const headY = bodyY - BODY_R - HEAD_R + 8;
+    return { bodyY, headY };
+  }
+
+  function updateHud() {
+    timeText.textContent = '남은 시간 ' + remaining + '초';
+    scoreText.textContent = '받은 눈송이 ' + score + '개';
+  }
+
+  // 새 판 시작
+  function startGame() {
+    score = 0;
+    remaining = GAME_SECONDS;
+    flakes = [];
+    snowmanX = width / 2;
+    keys.left = false;
+    keys.right = false;
+    const now = performance.now();
+    startTime = now;
+    lastSpawn = now;
+    lastFrame = now;
+    playing = true;
+    result.classList.remove('show');
+    updateHud();
+    spawnFlake();
+    requestAnimationFrame(loop);
+  }
+
+  // 판 끝내기
+  function endGame() {
+    playing = false;
+    remaining = 0;
+    keys.left = false;
+    keys.right = false;
+    updateHud();
+    resultText.textContent = '끝! 받은 눈송이 ' + score + '개';
+    result.classList.add('show');
+    retryBtn.focus();
+    draw();
+  }
+
+  // 화면 위쪽 무작위 가로 위치에 눈송이 하나 만들기
+  function spawnFlake() {
+    const x = FLAKE_RADIUS + Math.random() * Math.max(0, width - FLAKE_RADIUS * 2);
+    flakes.push({ x: x, y: -FLAKE_RADIUS });
+  }
+
+  // 두 원이 닿았는지 확인
+  function circlesTouch(x1, y1, r1, x2, y2, r2) {
+    const dx = x1 - x2;
+    const dy = y1 - y2;
+    const r = r1 + r2;
+    return dx * dx + dy * dy <= r * r;
+  }
+
+  function loop(now) {
+    if (!playing) return;
+
+    const dt = Math.min((now - lastFrame) / 1000, 0.1);
+    lastFrame = now;
+
+    // 남은 시간: 1초마다 1씩 줄어듦
+    const elapsed = (now - startTime) / 1000;
+    const newRemaining = Math.max(0, GAME_SECONDS - Math.floor(elapsed));
+    if (newRemaining !== remaining) {
+      remaining = newRemaining;
+      updateHud();
+    }
+    if (elapsed >= GAME_SECONDS) {
+      endGame();
+      return;
+    }
+
+    // 눈사람 움직이기
+    let dir = 0;
+    if (keys.left) dir -= 1;
+    if (keys.right) dir += 1;
+    snowmanX = clampSnowman(snowmanX + dir * SNOWMAN_SPEED * dt);
+
+    // 약 1초에 하나씩 눈송이 만들기
+    while (now - lastSpawn >= SPAWN_INTERVAL) {
+      lastSpawn += SPAWN_INTERVAL;
+      spawnFlake();
+    }
+
+    // 눈송이 떨어뜨리고, 받았는지·바닥에 닿았는지 확인
+    const parts = snowmanParts();
+    const kept = [];
+    for (const f of flakes) {
+      f.y += FALL_SPEED * dt;
+      const caught =
+        circlesTouch(f.x, f.y, FLAKE_RADIUS, snowmanX, parts.bodyY, BODY_R) ||
+        circlesTouch(f.x, f.y, FLAKE_RADIUS, snowmanX, parts.headY, HEAD_R);
+      if (caught) {
+        score += 1;
+        updateHud();
+        continue;            // 받은 눈송이는 사라짐
+      }
+      if (f.y - FLAKE_RADIUS > height) {
+        continue;            // 바닥까지 떨어진 눈송이는 그냥 사라짐
+      }
+      kept.push(f);
+    }
+    flakes = kept;
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ===== 그리기 =====
+  function drawSnowman() {
+    const { bodyY, headY } = snowmanParts();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#c9d6e8';
+    ctx.lineWidth = 2;
+
+    // 몸통
+    ctx.beginPath();
+    ctx.arc(snowmanX, bodyY, BODY_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 머리
+    ctx.beginPath();
+    ctx.arc(snowmanX, headY, HEAD_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 검은 눈
+    ctx.fillStyle = '#111111';
+    ctx.beginPath();
+    ctx.arc(snowmanX - 10, headY - 6, 4, 0, Math.PI * 2);
+    ctx.arc(snowmanX + 10, headY - 6, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 주황색 코
+    ctx.fillStyle = '#ff8c1a';
+    ctx.beginPath();
+    ctx.moveTo(snowmanX - 3, headY + 1);
+    ctx.lineTo(snowmanX + 3, headY + 1);
+    ctx.lineTo(snowmanX, headY + 14);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawFlakes() {
+    ctx.fillStyle = '#ffffff';
+    for (const f of flakes) {
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, FLAKE_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, width, height);
+    drawFlakes();
+    drawSnowman();
+  }
+
+  // ===== 키보드 =====
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (!playing) return;  // 끝난 뒤에는 움직이지 않음
+      if (e.key === 'ArrowLeft') keys.left = true;
+      if (e.key === 'ArrowRight') keys.right = true;
+    }
+  });
+
+  window.addEventListener('keyup', function (e) {
+    if (e.key === 'ArrowLeft') keys.left = false;
+    if (e.key === 'ArrowRight') keys.right = false;
+  });
+
+  // 창을 벗어나면 누르고 있던 키를 놓은 것으로 처리
+  window.addEventListener('blur', function () {
+    keys.left = false;
+    keys.right = false;
+  });
+
+  window.addEventListener('resize', resize);
+
+  retryBtn.addEventListener('click', function () {
+    retryBtn.blur();
+    startGame();
+  });
+
+  // ===== 열자마자 시작 =====
+  resize();
+  startGame();
+</script>
+</body>
+</html>
